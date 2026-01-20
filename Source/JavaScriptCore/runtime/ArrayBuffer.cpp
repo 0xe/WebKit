@@ -112,7 +112,11 @@ static RefPtr<BufferMemoryHandle> tryAllocateResizableMemory(VM* vm, size_t size
 
     constexpr bool readable = false;
     constexpr bool writable = false;
-    OSAllocator::protect(slowMemory + initialBytes, maximumBytes - initialBytes, readable, writable);
+    if (!OSAllocator::tryProtect(slowMemory + initialBytes, maximumBytes - initialBytes, readable, writable)) {
+        BufferMemoryManager::singleton().freePhysicalBytes(initialBytes);
+        BufferMemoryManager::singleton().freeGrowableBoundsCheckingMemory(slowMemory, maximumBytes);
+        return nullptr;
+    }
     return adoptRef(*new BufferMemoryHandle(slowMemory, initialBytes, maximumBytes, PageCount::fromBytes(initialBytes), PageCount::fromBytes(maximumBytes), MemorySharingMode::Shared, MemoryMode::BoundsChecking));
 }
 

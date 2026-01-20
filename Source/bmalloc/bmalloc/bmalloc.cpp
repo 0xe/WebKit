@@ -102,8 +102,12 @@ void* tryLargeZeroedMemalignVirtual(size_t requiredAlignment, size_t requestedSi
 #endif
     }
 
-    if (result)
-        vmZeroAndPurge(result, size);
+    if (result) {
+        if (!tryVmZeroAndPurge(result, size)) [[unlikely]] {
+            freeLargeVirtual(result, size, kind);
+            return nullptr;
+        }
+    }
 
     return result;
 }

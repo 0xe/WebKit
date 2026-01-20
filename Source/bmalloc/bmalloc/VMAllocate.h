@@ -86,6 +86,7 @@ inline void vmDeallocate(void* p, size_t vmSize);
 
 inline void vmRevokePermissions(void* p, size_t vmSize);
 
+inline bool tryVmZeroAndPurge(void* p, size_t vmSize, VMTag usage = VMTag::Malloc);
 inline void vmZeroAndPurge(void* p, size_t vmSize, VMTag usage = VMTag::Malloc);
 
 inline void vmDeallocatePhysicalPages(void* p, size_t vmSize);
@@ -271,7 +272,7 @@ inline void vmRevokePermissions(void* p, size_t vmSize)
 bool tryVmZeroAndPurgeMTECase(void* p, size_t vmSize, VMTag usage);
 #endif // BENABLE(MTE) && BOS(DARWIN)
 
-inline void vmZeroAndPurge(void* p, size_t vmSize, VMTag usage)
+inline bool tryVmZeroAndPurge(void* p, size_t vmSize, VMTag usage)
 {
     vmValidate(p, vmSize);
     int flags = MAP_PRIVATE | MAP_ANON | MAP_FIXED | BMALLOC_NORESERVE;
@@ -280,18 +281,24 @@ inline void vmZeroAndPurge(void* p, size_t vmSize, VMTag usage)
     if (isMadvZeroSupported()) {
         int rc = madvise(p, vmSize, MADV_ZERO);
         if (rc != -1)
-            return;
+            return true;
     }
 #endif
     BPROFILE_ZERO_FILL_PAGE(p, vmSize, flags, tag);
 #if BENABLE(MTE) && BOS(DARWIN)
     if (tryVmZeroAndPurgeMTECase(p, vmSize, usage))
-        return;
+        return true;
 #endif // BENABLE(MTE) && BOS(DARWIN)
     // MAP_ANON guarantees the memory is zeroed. This will also cause
     // page faults on accesses to this range following this call.
     void* result = mmap(p, vmSize, PROT_READ | PROT_WRITE, flags, tag, 0);
-    RELEASE_BASSERT(result == p);
+    return result == p;
+}
+
+inline void vmZeroAndPurge(void* p, size_t vmSize, VMTag usage)
+{
+    const bool result = tryVmZeroAndPurge(p, vmSize, usage);
+    RELEASE_BASSERT(result);
 }
 
 inline void vmDeallocatePhysicalPages(void* p, size_t vmSize)
@@ -381,7 +388,7 @@ inline void vmRevokePermissions(void* p, size_t vmSize)
         BCRASH();
 }
 
-inline void vmZeroAndPurge(void* p, size_t vmSize, VMTag usage)
+inline bool tryVmZeroAndPurge(void* p, size_t vmSize, VMTag usage)
 {
     // Guarantees the memory is zeroed. This will also cause
     // page faults on accesses to this range following this
@@ -389,7 +396,13 @@ inline void vmZeroAndPurge(void* p, size_t vmSize, VMTag usage)
 
     vmValidate(p, vmSize);
     DWORD result = DiscardVirtualMemory(p, vmSize);
-    RELEASE_BASSERT(result == ERROR_SUCCESS);
+    return result == ERROR_SUCCESS;
+}
+
+inline void vmZeroAndPurge(void* p, size_t vmSize, VMTag usage)
+{
+    bool result = tryVmZeroAndPurge(p, vmSize, usage);
+    RELEASE_BASSERT(result);
 }
 
 inline void vmDeallocatePhysicalPages(void* p, size_t vmSize)
